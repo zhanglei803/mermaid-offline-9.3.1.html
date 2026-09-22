@@ -11,7 +11,7 @@
 
 ## 环境要求
 
-- Chromium 内核浏览器（Chrome / Edge / 国产 Chromium 浏览器）
+- Chromium 内核浏览器
 - 离线内网环境，仅需单个 HTML 文件，无其他依赖
 
 ## 使用方法
