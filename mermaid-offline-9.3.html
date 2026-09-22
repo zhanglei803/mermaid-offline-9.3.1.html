@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MD提取+Mermaid离线编辑器 v9.4.0</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{display:grid;grid-template-columns:1fr 1fr;grid-template-rows: auto 1fr 1fr;height:100vh;gap:8px;padding:8px;}
+#mdInput{grid-row:2;grid-column:1;padding:10px;font-family:monospace;font-size:14px;resize:none;border:1px solid #999;}
+#code{grid-row:3;grid-column:1;padding:10px;font-family:monospace;font-size:14px;resize:none;border:1px solid #999;background:#1e1e1e;color:#fff;}
+#preview{grid-row:2 / span 2;grid-column:2;padding:20px;overflow:auto;background:#fff;border:1px solid #999;}
+.btns{grid-row:1;grid-column:1 / span 2;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+button{padding:6px 12px;cursor:pointer;}
+#fileInput{display:none;}
+#chartSelect{padding:6px;min-width:180px;}
+
+.resizer{grid-row:2;grid-column:1;height:6px;cursor:row-resize;background:transparent;position:relative;}
+.resizer::before{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:#bbb;transform:translateY(-50%);}
+.resizer:hover{background:#e5f3ff;}
+.resizer.dragging{background:#cfe9ff;}
+</style>
+</head>
+<body>
+<input type="file" id="fileInput" accept=".md,text/markdown">
+<div class="btns">
+  <button onclick="importMdFile()">导入MD文件</button>
+  <button onclick="extractMermaid()">提取Mermaid代码块</button>
+  <button onclick="clearMermaidCode()">清空代码预览</button>
+  <select id="chartSelect">
+    <option value="">请先提取图表</option>
+  </select>
+  <button onclick="exportSVG()">导出SVG</button>
+  <button onclick="exportPNG()">导出PNG</button>
+</div>
+<textarea id="mdInput" placeholder="粘贴你的完整Markdown文档，里面包含多个```mermaid```代码块"></textarea>
+<div class="resizer" id="resizer"></div>
+<textarea id="code" placeholder="选中图表的mermaid代码会出现在这里，也可以手动修改"></textarea>
+<div id="preview"></div>
+
+<script src="./mermaid.min.js"></script>
+<script src="./html2canvas.min.js"></script>
+<script>
+mermaid.initialize({startOnLoad:true,theme:'default'});
+const codeEl = document.getElementById('code');
+const previewEl = document.getElementById('preview');
+const mdInputEl = document.getElementById('mdInput');
+const fileInput = document.getElementById('fileInput');
+const chartSelect = document.getElementById('chartSelect');
+const resizer = document.getElementById('resizer');
+const grid = document.body;
+
+let chartList = [];
+
+function renderSingleChart(codeText){
+  previewEl.innerHTML = "";
+  if(!codeText.trim()) return;
+  try{
+    mermaid.render('diagram', codeText, function(svgCode){
+      previewEl.innerHTML = svgCode;
+    });
+  }catch(e){
+    previewEl.innerText = "语法错误："+e.message;
+  }
+}
+
+function extractMermaid(){
+  const mdText = mdInputEl.value;
+  const reg = /```mermaid\n([\s\S]*?)```/g;
+  chartList = [];
+  let match;
+  while ((match = reg.exec(mdText)) !== null) {
+    chartList.push(match[1].trim());
+  }
+  chartSelect.innerHTML = "";
+  if(chartList.length === 0){
+    chartSelect.innerHTML = `<option value="">未找到Mermaid图表</option>`;
+    clearMermaidCode();
+    return;
+  }
+  for(let i=0;i<chartList.length;i++){
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.innerText = `图表 ${i+1}`;
+    chartSelect.appendChild(opt);
+  }
+  switchChart(0);
+}
+
+function switchChart(idx){
+  const i = Number(idx);
+  if(isNaN(i) || i <0 || i >= chartList.length) return;
+  codeEl.value = chartList[i];
+  renderSingleChart(chartList[i]);
+}
+chartSelect.onchange = function(){
+  switchChart(this.value);
+}
+
+function clearMermaidCode(){
+  codeEl.value = "";
+  previewEl.innerHTML = "";
+  chartList = [];
+  chartSelect.innerHTML = `<option value="">请先提取图表</option>`;
+}
+
+function importMdFile(){
+  fileInput.click();
+}
+fileInput.onchange = function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    mdInputEl.value = ev.target.result;
+    extractMermaid();
+  };
+  reader.readAsText(file);
+  fileInput.value = null;
+}
+
+codeEl.addEventListener('input', function(){
+  const idx = Number(chartSelect.value);
+  if(!isNaN(idx) && chartList[idx] !== undefined){
+    chartList[idx] = codeEl.value;
+  }
+  renderSingleChart(codeEl.value);
+});
+
+function exportSVG(){
+  const svg = previewEl.querySelector('svg');
+  if(!svg) return alert("没有渲染出图表");
+  const svgData = new XMLSerializer().serializeToString(svg);
+  const blob = new Blob([svgData],{type:"image/svg+xml"});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "chart.svg";
+  a.click();
+}
+
+async function exportPNG() {
+  try {
+    const svg = previewEl.querySelector('svg');
+    if (!svg) {
+      alert("没有渲染出图表");
+      return;
+    }
+    const svgClone = svg.cloneNode(true);
+    const tempDom = document.createElement('div');
+    tempDom.style.position = 'absolute';
+    tempDom.style.left = '-9999px';
+    tempDom.style.top = '0px';
+    tempDom.style.background = "#ffffff";
+    tempDom.style.display = "inline-block";
+    tempDom.appendChild(svgClone);
+    document.body.appendChild(tempDom);
+
+    const scale = 4;
+    const canvas = await html2canvas(tempDom, {
+      scale: scale,
+      useCORS: true,
+      backgroundColor: "#ffffff"
+    });
+
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL("image/png");
+    a.download = "chart.png";
+    a.click();
+
+    document.body.removeChild(tempDom);
+  } catch (err) {
+    alert("PNG导出失败：" + err.message);
+  }
+}
+
+let dragging = false;
+
+resizer.addEventListener('mousedown', function(e){
+  dragging = true;
+  resizer.classList.add('dragging');
+  document.body.style.userSelect = 'none';
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', function(e){
+  if(!dragging) return;
+  const rect = grid.getBoundingClientRect();
+  const topH = e.clientY - rect.top - 48;
+  const bottomH = rect.bottom - e.clientY - 8;
+  if(topH > 120 && bottomH > 120){
+    grid.style.gridTemplateRows = `auto ${topH}px ${bottomH}px`;
+  }
+});
+
+document.addEventListener('mouseup', function(){
+  if(dragging){
+    dragging = false;
+    resizer.classList.remove('dragging');
+    document.body.style.userSelect = '';
+  }
+});
+</script>
+</body>
+</html>
